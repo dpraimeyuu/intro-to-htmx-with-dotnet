@@ -18,14 +18,14 @@ int checkpointIdCounter = 1;
 app.UseStaticFiles();
 
 // Home page
-app.MapGet("/", (Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery, HttpContext context) => 
+app.MapGet("/", (IAntiforgery antiforgery, HttpContext context) => 
 {
     var tokens = antiforgery.GetAndStoreTokens(context);
     return Results.Content(GetHomePage(tokens.RequestToken!), "text/html");
 });
 
 // Get all tours
-app.MapGet("/tours", (Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery, HttpContext context) =>
+app.MapGet("/tours", (IAntiforgery antiforgery, HttpContext context) =>
 {
     var tokens = antiforgery.GetAndStoreTokens(context);
     return Results.Content(GetToursListHtml(tokens.RequestToken!), "text/html");
@@ -42,7 +42,7 @@ app.MapPost("/tours", (IAntiforgery antiforgery, HttpContext httpContext, [FromF
 });
 
 // Delete a tour
-app.MapDelete("/tours/{tourId}", (int tourId, Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery, HttpContext context) =>
+app.MapDelete("/tours/{tourId}", (int tourId, IAntiforgery antiforgery, HttpContext context) =>
 {
     // Remove all checkpoints for this tour
     var tourCheckpoints = checkpoints.Values.Where(c => c.TourId == tourId).ToList();
@@ -59,7 +59,7 @@ app.MapDelete("/tours/{tourId}", (int tourId, Microsoft.AspNetCore.Antiforgery.I
 });
 
 // Get checkpoints for a tour
-app.MapGet("/tours/{tourId}/checkpoints", (int tourId, Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery, HttpContext context) =>
+app.MapGet("/tours/{tourId}/checkpoints", (int tourId, IAntiforgery antiforgery, HttpContext context) =>
 {
     var tokens = antiforgery.GetAndStoreTokens(context);
     var tourCheckpoints = checkpoints.Values
@@ -71,7 +71,7 @@ app.MapGet("/tours/{tourId}/checkpoints", (int tourId, Microsoft.AspNetCore.Anti
 });
 
 // Add a checkpoint
-app.MapPost("/tours/{tourId}/checkpoints", (int tourId, string name, Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery, HttpContext context) =>
+app.MapPost("/tours/{tourId}/checkpoints", (int tourId, string name, IAntiforgery antiforgery, HttpContext context) =>
 {
     var maxOrder = checkpoints.Values
         .Where(c => c.TourId == tourId)
@@ -97,7 +97,7 @@ app.MapPost("/tours/{tourId}/checkpoints", (int tourId, string name, Microsoft.A
 });
 
 // Delete a checkpoint
-app.MapDelete("/checkpoints/{checkpointId}", (int checkpointId, Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery, HttpContext context) =>
+app.MapDelete("/checkpoints/{checkpointId}", (int checkpointId, IAntiforgery antiforgery, HttpContext context) =>
 {
     if (checkpoints.TryGetValue(checkpointId, out var checkpoint))
     {
@@ -123,7 +123,7 @@ app.MapDelete("/checkpoints/{checkpointId}", (int checkpointId, Microsoft.AspNet
 });
 
 // Move checkpoint before another
-app.MapPost("/checkpoints/{checkpointId}/move-before/{targetId}", (int checkpointId, int targetId, Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery, HttpContext context) =>
+app.MapPost("/checkpoints/{checkpointId}/move-before/{targetId}", (int checkpointId, int targetId, IAntiforgery antiforgery, HttpContext context) =>
 {
     if (checkpoints.TryGetValue(checkpointId, out var checkpoint) && 
         checkpoints.TryGetValue(targetId, out var target) &&
@@ -152,7 +152,7 @@ app.MapPost("/checkpoints/{checkpointId}/move-before/{targetId}", (int checkpoin
 });
 
 // Move checkpoint after another
-app.MapPost("/checkpoints/{checkpointId}/move-after/{targetId}", (int checkpointId, int targetId, Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery, HttpContext context) =>
+app.MapPost("/checkpoints/{checkpointId}/move-after/{targetId}", (int checkpointId, int targetId, IAntiforgery antiforgery, HttpContext context) =>
 {
     if (checkpoints.TryGetValue(checkpointId, out var checkpoint) && 
         checkpoints.TryGetValue(targetId, out var target) &&
