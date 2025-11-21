@@ -7,11 +7,8 @@ builder.Services.AddAntiforgery(options =>
 {
     options.HeaderName = "X-CSRF-TOKEN";
 });
-builder.Services.AddSingleton<ToursRepository>();
+builder.Services.AddSingleton<ToursRepository, FileToursRepository>();
 var app = builder.Build();
-
-// Get the repository instance
-var repository = app.Services.GetRequiredService<ToursRepository>();
 
 // Serve static files (for our HTML page)
 app.UseStaticFiles();
@@ -31,32 +28,32 @@ app.MapGet("/tours/{tourId}", (int tourId, IAntiforgery antiforgery, HttpContext
 });
 
 // Get all tours
-app.MapGet("/tours", (IAntiforgery antiforgery, HttpContext context) =>
+app.MapGet("/tours", (ToursRepository repository, IAntiforgery antiforgery, HttpContext context) =>
 {
     var tokens = antiforgery.GetAndStoreTokens(context);
-    return Results.Content(GetToursListHtml(tokens.RequestToken!), "text/html");
+    return Results.Content(GetToursListHtml(repository, tokens.RequestToken!), "text/html");
 });
 
 // Create a new tour
-app.MapPost("/tours", (IAntiforgery antiforgery, HttpContext httpContext, [FromForm] string name) =>
+app.MapPost("/tours", (ToursRepository repository, IAntiforgery antiforgery, HttpContext httpContext, [FromForm] string name) =>
 {
     var tokens = antiforgery.GetAndStoreTokens(httpContext);
     repository.CreateTour(name);
     
-    return Results.Content(GetToursListHtml(tokens.RequestToken!), "text/html");
+    return Results.Content(GetToursListHtml(repository, tokens.RequestToken!), "text/html");
 });
 
 // Delete a tour
-app.MapDelete("/tours/{tourId}", (int tourId, IAntiforgery antiforgery, HttpContext context) =>
+app.MapDelete("/tours/{tourId}", (ToursRepository repository, int tourId, IAntiforgery antiforgery, HttpContext context) =>
 {
     repository.DeleteTour(tourId);
     
     var tokens = antiforgery.GetAndStoreTokens(context);
-    return Results.Content(GetToursListHtml(tokens.RequestToken!), "text/html");
+    return Results.Content(GetToursListHtml(repository, tokens.RequestToken!), "text/html");
 });
 
 // Get checkpoints for a tour
-app.MapGet("/tours/{tourId}/checkpoints", (int tourId, IAntiforgery antiforgery, HttpContext context) =>
+app.MapGet("/tours/{tourId}/checkpoints", (ToursRepository repository, int tourId, IAntiforgery antiforgery, HttpContext context) =>
 {
     var tokens = antiforgery.GetAndStoreTokens(context);
     var tourCheckpoints = repository.GetCheckpointsForTour(tourId).ToList();
@@ -65,7 +62,7 @@ app.MapGet("/tours/{tourId}/checkpoints", (int tourId, IAntiforgery antiforgery,
 });
 
 // Get checkpoints as JSON for map display
-app.MapGet("/tours/{tourId}/checkpoints-json", (int tourId) =>
+app.MapGet("/tours/{tourId}/checkpoints-json", (ToursRepository repository, int tourId) =>
 {
     var tourCheckpoints = repository.GetCheckpointsForTour(tourId)
         .Select(cp => new {
@@ -80,7 +77,7 @@ app.MapGet("/tours/{tourId}/checkpoints-json", (int tourId) =>
 });
 
 // Add a checkpoint
-app.MapPost("/tours/{tourId}/checkpoints", (int tourId, [FromForm] string name, IAntiforgery antiforgery, HttpContext context) =>
+app.MapPost("/tours/{tourId}/checkpoints", (ToursRepository repository, int tourId, [FromForm] string name, IAntiforgery antiforgery, HttpContext context) =>
 {
     repository.CreateCheckpoint(tourId, name);
     
@@ -91,7 +88,7 @@ app.MapPost("/tours/{tourId}/checkpoints", (int tourId, [FromForm] string name, 
 });
 
 // Delete a checkpoint
-app.MapDelete("/checkpoints/{checkpointId}", (int checkpointId, IAntiforgery antiforgery, HttpContext context) =>
+app.MapDelete("/checkpoints/{checkpointId}", (ToursRepository repository, int checkpointId, IAntiforgery antiforgery, HttpContext context) =>
 {
     var checkpoint = repository.GetCheckpoint(checkpointId);
     if (checkpoint == null)
@@ -110,7 +107,7 @@ app.MapDelete("/checkpoints/{checkpointId}", (int checkpointId, IAntiforgery ant
 });
 
 // Move checkpoint before another
-app.MapPost("/checkpoints/{checkpointId}/move-before/{targetId}", (int checkpointId, int targetId, IAntiforgery antiforgery, HttpContext context) =>
+app.MapPost("/checkpoints/{checkpointId}/move-before/{targetId}", (ToursRepository repository, int checkpointId, int targetId, IAntiforgery antiforgery, HttpContext context) =>
 {
     if (!repository.MoveCheckpointBefore(checkpointId, targetId))
         return Results.NotFound();
@@ -129,7 +126,7 @@ app.MapPost("/checkpoints/{checkpointId}/move-before/{targetId}", (int checkpoin
 });
 
 // Move checkpoint after another
-app.MapPost("/checkpoints/{checkpointId}/move-after/{targetId}", (int checkpointId, int targetId, IAntiforgery antiforgery, HttpContext context) =>
+app.MapPost("/checkpoints/{checkpointId}/move-after/{targetId}", (ToursRepository repository, int checkpointId, int targetId, IAntiforgery antiforgery, HttpContext context) =>
 {
     if (!repository.MoveCheckpointAfter(checkpointId, targetId))
         return Results.NotFound();
@@ -148,7 +145,7 @@ app.MapPost("/checkpoints/{checkpointId}/move-after/{targetId}", (int checkpoint
 });
 
 // Set checkpoint location
-app.MapPost("/checkpoints/{checkpointId}/location", async (int checkpointId, HttpContext context, IAntiforgery antiforgery) =>
+app.MapPost("/checkpoints/{checkpointId}/location", async (ToursRepository repository, int checkpointId, HttpContext context, IAntiforgery antiforgery) =>
 {
     var checkpoint = repository.GetCheckpoint(checkpointId);
     if (checkpoint == null)
@@ -511,7 +508,7 @@ string GetHomePage(string antiforgeryToken)
            ";
 }
 
-string GetToursListHtml(string antiforgeryToken)
+string GetToursListHtml(ToursRepository repository, string antiforgeryToken)
 {
     var html = "";
     foreach (var tour in repository.GetAllTours())
@@ -701,8 +698,27 @@ record Checkpoint
     public double? Longitude { get; set; }
 }
 
+// Repository interface
+interface ToursRepository
+{
+    // Tour operations
+    IEnumerable<Tour> GetAllTours();
+    Tour? GetTour(int id);
+    Tour CreateTour(string name);
+    bool DeleteTour(int tourId);
+    
+    // Checkpoint operations
+    IEnumerable<Checkpoint> GetCheckpointsForTour(int tourId);
+    Checkpoint? GetCheckpoint(int id);
+    Checkpoint CreateCheckpoint(int tourId, string name);
+    bool DeleteCheckpoint(int checkpointId);
+    bool UpdateCheckpointLocation(int checkpointId, double latitude, double longitude);
+    bool MoveCheckpointBefore(int checkpointId, int targetId);
+    bool MoveCheckpointAfter(int checkpointId, int targetId);
+}
+
 // Repository for persisting tours and checkpoints
-class ToursRepository
+class FileToursRepository : ToursRepository
 {
     private readonly string _filePath;
     private Dictionary<int, Tour> _tours = new();
@@ -711,7 +727,7 @@ class ToursRepository
     private int _checkpointIdCounter = 1;
     private readonly object _lock = new();
 
-    public ToursRepository(IConfiguration configuration)
+    public FileToursRepository(IConfiguration configuration)
     {
         _filePath = configuration.GetValue<string>("DataFilePath") ?? "tours-data.json";
         Load();

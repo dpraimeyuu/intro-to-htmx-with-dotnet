@@ -18,7 +18,7 @@
       "Id": 2,
       "TourId": 1,
       "Name": "Nudne muzeum",
-      "Order": 2,
+      "Order": 1,
       "Latitude": 54.35476472767815,
       "Longitude": 18.652982711791996
     },
@@ -26,7 +26,7 @@
       "Id": 3,
       "TourId": 1,
       "Name": "inne miejsce, ale ciekawe",
-      "Order": 1,
+      "Order": 2,
       "Latitude": 54.35444803994803,
       "Longitude": 18.659248352050785
     }
