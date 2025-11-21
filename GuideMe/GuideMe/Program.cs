@@ -24,6 +24,13 @@ app.MapGet("/", (IAntiforgery antiforgery, HttpContext context) =>
     return Results.Content(GetHomePage(tokens.RequestToken!), "text/html");
 });
 
+// Handle /tours/{tourId} URLs (for map browsing)
+app.MapGet("/tours/{tourId}", (int tourId, IAntiforgery antiforgery, HttpContext context) => 
+{
+    var tokens = antiforgery.GetAndStoreTokens(context);
+    return Results.Content(GetHomePage(tokens.RequestToken!), "text/html");
+});
+
 // Get all tours
 app.MapGet("/tours", (IAntiforgery antiforgery, HttpContext context) =>
 {
@@ -443,6 +450,10 @@ string GetHomePage(string antiforgeryToken)
                        
                        var tourName = tourDiv.querySelector('h3').textContent;
                        
+                       // Update URL to /tours/{{tourId}}?mode=map-browsing
+                       var newUrl = '/tours/' + tourId + '?mode=map-browsing';
+                       window.history.pushState({{ tourId: tourId }}, '', newUrl);
+                       
                        // Update map panel heading with tour name
                        document.getElementById('map-panel-title').textContent = 'Tour Map: ' + tourName;
                        
@@ -489,6 +500,9 @@ string GetHomePage(string antiforgeryToken)
                        toursPanel.style.margin = '0 auto';
                        
                        activeTourId = null;
+                       
+                       // Update URL back to root
+                       window.history.pushState({{}}, '', '/');
                    }};
                    
                    // Function to update markers
@@ -525,6 +539,48 @@ string GetHomePage(string antiforgeryToken)
                        document.body.style.cursor = 'crosshair';
                        showNotification('Click on the map to locate this checkpoint', 5000);
                    }};
+                   
+                   // Function to extract tour ID from URL
+                   function getTourIdFromUrl() {{
+                       var path = window.location.pathname;
+                       var urlParams = new URLSearchParams(window.location.search);
+                       var mode = urlParams.get('mode');
+                       
+                       // Check if URL matches /tours/{{tourId}}?mode=map-browsing
+                       if (mode === 'map-browsing' && path.startsWith('/tours/')) {{
+                           var tourId = path.replace('/tours/', '').split('?')[0];
+                           return tourId ? parseInt(tourId) : null;
+                       }}
+                       return null;
+                   }}
+                   
+                   // Check URL on page load and restore map view if needed
+                   document.body.addEventListener('htmx:afterSettle', function(event) {{
+                       // Only run once after tours list is loaded
+                       if (event.detail.target.id === 'tours-list') {{
+                           var tourId = getTourIdFromUrl();
+                           
+                           if (tourId) {{
+                               setTimeout(function() {{
+                                   showTourOnMap(tourId);
+                               }}, 100);
+                           }}
+                       }}
+                   }});
+                   
+                   // Handle browser back/forward buttons
+                   window.addEventListener('popstate', function(event) {{
+                       var tourId = getTourIdFromUrl();
+                       
+                       if (tourId) {{
+                           // Wait for tours list to exist, then show the map
+                           setTimeout(function() {{
+                               showTourOnMap(tourId);
+                           }}, 100);
+                       }} else {{
+                           hideMap();
+                       }}
+                   }});
                </script>
            </body>
            </html>
@@ -554,7 +610,7 @@ string GetToursListHtml(string antiforgeryToken)
                 <div class=""flex justify-between items-center mb-2"">
                     <h3 class=""text-lg font-semibold"">{tour.Name}</h3>
                     <div class=""flex gap-2"">
-                        <button 
+                        <button
                             onclick=""showTourOnMap({tour.Id})""
                             class=""bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm"">
                             Show on Map
