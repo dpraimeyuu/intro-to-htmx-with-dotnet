@@ -265,7 +265,7 @@ string GetHomePage(string antiforgeryToken)
                    
                    // Add custom event listeners for debugging
                    document.body.addEventListener('htmx:beforeRequest', function(evt) {{
-                       console.log('🚀 HTMX Request Starting:', {{
+                       console.log('HTMX Request Starting:', {{
                            target: evt.detail.target,
                            verb: evt.detail.verb,
                            path: evt.detail.path,
@@ -275,7 +275,7 @@ string GetHomePage(string antiforgeryToken)
                    }});
                    
                    document.body.addEventListener('htmx:afterRequest', function(evt) {{
-                       console.log('✅ HTMX Request Complete:', {{
+                       console.log('HTMX Request Complete:', {{
                            successful: evt.detail.successful,
                            status: evt.detail.xhr.status,
                            response: evt.detail.xhr.responseText.substring(0, 200) + '...'
@@ -283,7 +283,7 @@ string GetHomePage(string antiforgeryToken)
                    }});
                    
                    document.body.addEventListener('htmx:responseError', function(evt) {{
-                       console.error('❌ HTMX Response Error:', {{
+                       console.error('HTMX Response Error:', {{
                            status: evt.detail.xhr.status,
                            statusText: evt.detail.xhr.statusText,
                            response: evt.detail.xhr.responseText
@@ -291,11 +291,11 @@ string GetHomePage(string antiforgeryToken)
                    }});
                    
                    document.body.addEventListener('htmx:sendError', function(evt) {{
-                       console.error('❌ HTMX Send Error:', evt.detail);
+                       console.error('HTMX Send Error:', evt.detail);
                    }});
                    
                    document.body.addEventListener('htmx:swapError', function(evt) {{
-                       console.error('❌ HTMX Swap Error:', evt.detail);
+                       console.error('HTMX Swap Error:', evt.detail);
                    }});
                    
                    // Listen for custom showNotification events triggered by HX-Trigger header
@@ -305,12 +305,12 @@ string GetHomePage(string antiforgeryToken)
                        }}
                    }});
                </script>
-               <div class=""container mx-auto px-4 max-w-7xl"">
+               <div class=""container mx-auto px-4"" style=""max-width: 1400px;"">
                    <h1 class=""text-3xl font-bold text-gray-800 mb-8"">Tour Planner</h1>
                    
-                   <div class=""grid grid-cols-1 lg:grid-cols-2 gap-6"">
+                   <div class=""flex gap-6 transition-all duration-500 ease-in-out"" id=""main-container"">
                        <!-- Left Panel: Tours and Checkpoints -->
-                       <div>
+                       <div id=""tours-panel"" class=""transition-all duration-500 ease-in-out"" style=""flex: 1; max-width: 100%; margin: 0 auto;"">
                            <div class=""bg-white p-6 rounded-lg shadow mb-6"">
                                <h2 class=""text-xl font-semibold mb-4"">Create New Tour</h2>
                                <form hx-post=""/tours"" hx-target=""#tours-list"" hx-swap=""innerHTML"" hx-on::after-request=""this.reset()"">
@@ -331,15 +331,16 @@ string GetHomePage(string antiforgeryToken)
                        </div>
                        
                        <!-- Right Panel: Map -->
-                       <div id=""map-panel"" class=""bg-white rounded-lg shadow overflow-hidden sticky top-8 hidden"">
+                       <div id=""map-panel"" class=""bg-white rounded-lg shadow overflow-hidden transition-all duration-500 ease-in-out"" 
+                            style=""flex: 0 0 0; opacity: 0; overflow: hidden;"">
                            <div class=""p-4 border-b bg-gray-50 flex justify-between items-center"">
                                <h3 id=""map-panel-title"" class=""font-semibold text-gray-700"">Tour Map</h3>
-                               <button onclick=""document.getElementById('map-panel').classList.add('hidden'); activeTourId = null;"" 
+                               <button onclick=""hideMap()"" 
                                        class=""text-gray-500 hover:text-gray-700"">
                                    ✕
                                </button>
                            </div>
-                           <div id=""map""></div>
+                           <div id=""map"" style=""height: calc(100vh - 12rem);""></div>
                        </div>
                    </div>
                </div>
@@ -419,11 +420,11 @@ string GetHomePage(string antiforgeryToken)
                                        
                                        selectedCheckpoint = null;
                                        document.body.style.cursor = 'default';
-                                       showNotification('✅ Location set successfully!', 2000);
+                                       showNotification('Location set successfully!', 2000);
                                    }})
                                    .catch(error => {{
                                        console.error('Error setting location:', error);
-                                       showNotification('❌ Failed to set location', 3000);
+                                       showNotification('Failed to set location', 3000);
                                        selectedCheckpoint = null;
                                        document.body.style.cursor = 'default';
                                    }});
@@ -445,22 +446,49 @@ string GetHomePage(string antiforgeryToken)
                        // Update map panel heading with tour name
                        document.getElementById('map-panel-title').textContent = 'Tour Map: ' + tourName;
                        
-                       // Show map panel
+                       // Animate the layout
+                       var toursPanel = document.getElementById('tours-panel');
                        var mapPanel = document.getElementById('map-panel');
-                       mapPanel.classList.remove('hidden');
+                       
+                       // Adjust tours panel to take half width
+                       toursPanel.style.maxWidth = '50%';
+                       toursPanel.style.margin = '0';
+                       
+                       // Show and expand map panel
+                       mapPanel.style.flex = '1';
+                       mapPanel.style.opacity = '1';
                        
                        // Initialize map if needed
                        initializeMap();
                        
-                       // Force map to resize (Leaflet needs this after showing hidden container)
-                       setTimeout(function() {{
-                           map.invalidateSize();
-                       }}, 100);
-                       
                        // Get checkpoints from data attribute
                        var checkpointsJson = tourDiv.getAttribute('data-checkpoints');
                        var checkpoints = JSON.parse(checkpointsJson);
-                       updateMapMarkers(checkpoints);
+                       
+                       // Force map to resize and update markers after animation completes
+                       setTimeout(function() {{
+                           if (map) {{
+                               map.invalidateSize();
+                               // Update markers after map is resized
+                               updateMapMarkers(checkpoints);
+                           }}
+                       }}, 600);
+                   }};
+                   
+                   // Function to hide map
+                   window.hideMap = function() {{
+                       var toursPanel = document.getElementById('tours-panel');
+                       var mapPanel = document.getElementById('map-panel');
+                       
+                       // Hide map panel
+                       mapPanel.style.flex = '0 0 0';
+                       mapPanel.style.opacity = '0';
+                       
+                       // Center tours panel
+                       toursPanel.style.maxWidth = '100%';
+                       toursPanel.style.margin = '0 auto';
+                       
+                       activeTourId = null;
                    }};
                    
                    // Function to update markers
@@ -485,6 +513,9 @@ string GetHomePage(string antiforgeryToken)
                        if (Object.keys(markers).length > 0) {{
                            var group = L.featureGroup(Object.values(markers));
                            map.fitBounds(group.getBounds().pad(0.1));
+                       }} else {{
+                           // No markers with locations, center on Gdansk
+                           map.setView([54.3520, 18.6466], 13);
                        }}
                    }};
                    
@@ -492,7 +523,7 @@ string GetHomePage(string antiforgeryToken)
                    window.selectCheckpointForLocation = function(checkpointId, tourId) {{
                        selectedCheckpoint = {{ id: checkpointId, tourId: tourId }};
                        document.body.style.cursor = 'crosshair';
-                       showNotification('📍 Click on the map to locate this checkpoint', 5000);
+                       showNotification('Click on the map to locate this checkpoint', 5000);
                    }};
                </script>
            </body>
@@ -526,7 +557,7 @@ string GetToursListHtml(string antiforgeryToken)
                         <button 
                             onclick=""showTourOnMap({tour.Id})""
                             class=""bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm"">
-                            🗺️ Show on Map
+                            Show on Map
                         </button>
                         <button 
                             hx-delete=""/tours/{tour.Id}"" 
@@ -598,7 +629,7 @@ string GetCheckpointsHtml(int tourId, List<Checkpoint> tourCheckpoints, string a
                         onclick=""selectCheckpointForLocation({cp.Id}, {tourId})""
                         class=""bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm font-semibold""
                         title=""Click to locate on map"">
-                        📍 Locate
+                        Locate
                     </button>";
         }
         
