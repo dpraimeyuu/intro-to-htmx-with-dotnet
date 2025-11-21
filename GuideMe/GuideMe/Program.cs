@@ -70,6 +70,23 @@ app.MapGet("/tours/{tourId}/checkpoints", (int tourId, IAntiforgery antiforgery,
     return Results.Content(GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!), "text/html");
 });
 
+// Get checkpoints as JSON for map display
+app.MapGet("/tours/{tourId}/checkpoints-json", (int tourId) =>
+{
+    var tourCheckpoints = checkpoints.Values
+        .Where(c => c.TourId == tourId)
+        .OrderBy(c => c.Order)
+        .Select(cp => new {
+            id = cp.Id,
+            name = cp.Name,
+            latitude = cp.Latitude,
+            longitude = cp.Longitude
+        })
+        .ToList();
+    
+    return Results.Json(tourCheckpoints);
+});
+
 // Add a checkpoint
 app.MapPost("/tours/{tourId}/checkpoints", (int tourId, [FromForm] string name, IAntiforgery antiforgery, HttpContext context) =>
 {
@@ -293,25 +310,133 @@ string GetHomePage(string antiforgeryToken)
                        </div>
                        
                        <!-- Right Panel: Map -->
-                       <div class=""bg-white rounded-lg shadow overflow-hidden sticky top-8"">
+                       <div id=""map-panel"" class=""bg-white rounded-lg shadow overflow-hidden sticky top-8 hidden"">
+                           <div class=""p-4 border-b bg-gray-50 flex justify-between items-center"">
+                               <h3 class=""font-semibold text-gray-700"">Tour Map</h3>
+                               <button onclick=""document.getElementById('map-panel').classList.add('hidden'); activeTourId = null;"" 
+                                       class=""text-gray-500 hover:text-gray-700"">
+                                   ✕
+                               </button>
+                           </div>
                            <div id=""map""></div>
                        </div>
                    </div>
                </div>
                
+               <!-- Notification toast -->
+               <div id=""notification"" class=""fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg hidden transition-opacity duration-300"">
+                   <span id=""notification-text""></span>
+               </div>
+               
+               <script>
+                   // Show notification
+                   function showNotification(message, duration = 3000) {{
+                       var notif = document.getElementById('notification');
+                       var text = document.getElementById('notification-text');
+                       text.textContent = message;
+                       notif.classList.remove('hidden');
+                       setTimeout(function() {{
+                           notif.classList.add('hidden');
+                       }}, duration);
+                   }}
+               </script>
+               
                <script>
                    // Initialize map centered on Gdańsk Old Town
-                   var map = L.map('map').setView([54.3520, 18.6466], 13);
-                   L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-                       attribution: '© OpenStreetMap contributors',
-                       maxZoom: 19
-                   }}).addTo(map);
-                   
+                   var map = null;
                    var markers = {{}};
                    var selectedCheckpoint = null;
+                   var activeTourId = null;
+                   
+                   // Function to initialize map (lazy loading)
+                   function initializeMap() {{
+                       if (!map) {{
+                           map = L.map('map').setView([54.3520, 18.6466], 13);
+                           L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                               attribution: '© OpenStreetMap contributors',
+                               maxZoom: 19
+                           }}).addTo(map);
+                           
+                           // Map click handler for setting checkpoint locations
+                           map.on('click', function(e) {{
+                               if (selectedCheckpoint) {{
+                                   // Send location update
+                                   fetch('/checkpoints/' + selectedCheckpoint.id + '/location', {{
+                                       method: 'POST',
+                                       headers: {{
+                                           'Content-Type': 'application/json',
+                                           'X-CSRF-TOKEN': document.querySelector('input[name=""__RequestVerificationToken""]').value
+                                       }},
+                                       body: JSON.stringify({{
+                                           latitude: e.latlng.lat,
+                                           longitude: e.latlng.lng
+                                       }})
+                                   }})
+                                   .then(response => response.text())
+                                   .then(html => {{
+                                       // Parse the HTML to extract OOB swaps
+                                       var parser = new DOMParser();
+                                       var doc = parser.parseFromString(html, 'text/html');
+                                       
+                                       // Update checkpoints list (main content)
+                                       var mainContent = doc.querySelector('div.space-y-2');
+                                       if (mainContent) {{
+                                           document.getElementById('checkpoints-' + selectedCheckpoint.tourId).innerHTML = mainContent.outerHTML;
+                                       }}
+                                       
+                                       // Execute OOB swap scripts
+                                       var oobDiv = doc.querySelector('#map-update');
+                                       if (oobDiv) {{
+                                           var scripts = oobDiv.getElementsByTagName('script');
+                                           for (var i = 0; i < scripts.length; i++) {{
+                                               eval(scripts[i].textContent);
+                                           }}
+                                       }}
+                                       
+                                       selectedCheckpoint = null;
+                                       document.body.style.cursor = 'default';
+                                       showNotification('✅ Location set successfully!', 2000);
+                                   }})
+                                   .catch(error => {{
+                                       console.error('Error setting location:', error);
+                                       showNotification('❌ Failed to set location', 3000);
+                                       selectedCheckpoint = null;
+                                       document.body.style.cursor = 'default';
+                                   }});
+                               }}
+                           }});
+                       }}
+                   }}
+                   
+                   // Function to show tour on map
+                   window.showTourOnMap = function(tourId) {{
+                       activeTourId = tourId;
+                       
+                       // Show map panel
+                       var mapPanel = document.getElementById('map-panel');
+                       mapPanel.classList.remove('hidden');
+                       
+                       // Initialize map if needed
+                       initializeMap();
+                       
+                       // Force map to resize (Leaflet needs this after showing hidden container)
+                       setTimeout(function() {{
+                           map.invalidateSize();
+                       }}, 100);
+                       
+                       // Get checkpoints from data attribute
+                       var tourDiv = document.querySelector('[data-tour-id=""' + tourId + '""]');
+                       if (tourDiv) {{
+                           var checkpointsJson = tourDiv.getAttribute('data-checkpoints');
+                           var checkpoints = JSON.parse(checkpointsJson);
+                           updateMapMarkers(checkpoints);
+                       }}
+                   }};
                    
                    // Function to update markers
                    window.updateMapMarkers = function(checkpoints) {{
+                       if (!map) return; // Don't update if map not initialized
+                       
                        // Clear existing markers
                        Object.values(markers).forEach(marker => map.removeLayer(marker));
                        markers = {{}};
@@ -337,33 +462,8 @@ string GetHomePage(string antiforgeryToken)
                    window.selectCheckpointForLocation = function(checkpointId, tourId) {{
                        selectedCheckpoint = {{ id: checkpointId, tourId: tourId }};
                        document.body.style.cursor = 'crosshair';
-                       alert('Click on the map to set the location for this checkpoint');
+                       showNotification('📍 Click on the map to locate this checkpoint', 5000);
                    }};
-                   
-                   // Map click handler
-                   map.on('click', function(e) {{
-                       if (selectedCheckpoint) {{
-                           // Send location update
-                           fetch('/checkpoints/' + selectedCheckpoint.id + '/location', {{
-                               method: 'POST',
-                               headers: {{
-                                   'Content-Type': 'application/json',
-                                   'X-CSRF-TOKEN': document.querySelector('input[name=""__RequestVerificationToken""]').value
-                               }},
-                               body: JSON.stringify({{
-                                   latitude: e.latlng.lat,
-                                   longitude: e.latlng.lng
-                               }})
-                           }})
-                           .then(response => response.text())
-                           .then(html => {{
-                               // Update checkpoints list
-                               document.getElementById('checkpoints-' + selectedCheckpoint.tourId).innerHTML = html;
-                               selectedCheckpoint = null;
-                               document.body.style.cursor = 'default';
-                           }});
-                       }}
-                   }});
                </script>
            </body>
            </html>
@@ -375,18 +475,38 @@ string GetToursListHtml(string antiforgeryToken)
     var html = "";
     foreach (var tour in tours.Values.OrderBy(t => t.Id))
     {
+        // Get checkpoints for this tour as JSON
+        var tourCheckpoints = checkpoints.Values
+            .Where(c => c.TourId == tour.Id)
+            .OrderBy(c => c.Order)
+            .Select(cp => new {
+                id = cp.Id,
+                name = cp.Name,
+                latitude = cp.Latitude,
+                longitude = cp.Longitude
+            })
+            .ToList();
+        var checkpointsJson = System.Text.Json.JsonSerializer.Serialize(tourCheckpoints);
+        
         html += $@"
-            <div class=""bg-white p-4 rounded-lg shadow mb-4"">
+            <div class=""bg-white p-4 rounded-lg shadow mb-4"" data-tour-id=""{tour.Id}"" data-checkpoints='{checkpointsJson}'>
                 <div class=""flex justify-between items-center mb-2"">
                     <h3 class=""text-lg font-semibold"">{tour.Name}</h3>
-                    <button 
-                        hx-delete=""/tours/{tour.Id}"" 
-                        hx-target=""#tours-list""
-                        hx-swap=""innerHTML""
-                        hx-headers='{{""X-CSRF-TOKEN"": ""{antiforgeryToken}""}}'
-                        class=""bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"">
-                        Delete Tour
-                    </button>
+                    <div class=""flex gap-2"">
+                        <button 
+                            onclick=""showTourOnMap({tour.Id})""
+                            class=""bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm"">
+                            🗺️ Show on Map
+                        </button>
+                        <button 
+                            hx-delete=""/tours/{tour.Id}"" 
+                            hx-target=""#tours-list""
+                            hx-swap=""innerHTML""
+                            hx-headers='{{""X-CSRF-TOKEN"": ""{antiforgeryToken}""}}'
+                            class=""bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"">
+                            Delete Tour
+                        </button>
+                    </div>
                 </div>
                 <div id=""checkpoints-{tour.Id}"" hx-get=""/tours/{tour.Id}/checkpoints"" hx-trigger=""load"" hx-swap=""innerHTML"">
                     Loading checkpoints...
