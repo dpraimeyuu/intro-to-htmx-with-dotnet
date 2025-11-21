@@ -1,18 +1,17 @@
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddAntiforgery(options =>
 {
     options.HeaderName = "X-CSRF-TOKEN";
 });
+builder.Services.AddSingleton<ToursRepository>();
 var app = builder.Build();
 
-// In-memory storage
-var tours = new Dictionary<int, Tour>();
-var checkpoints = new Dictionary<int, Checkpoint>();
-int tourIdCounter = 1;
-int checkpointIdCounter = 1;
+// Get the repository instance
+var repository = app.Services.GetRequiredService<ToursRepository>();
 
 // Serve static files (for our HTML page)
 app.UseStaticFiles();
@@ -42,8 +41,7 @@ app.MapGet("/tours", (IAntiforgery antiforgery, HttpContext context) =>
 app.MapPost("/tours", (IAntiforgery antiforgery, HttpContext httpContext, [FromForm] string name) =>
 {
     var tokens = antiforgery.GetAndStoreTokens(httpContext);
-    var tour = new Tour { Id = tourIdCounter++, Name = name };
-    tours[tour.Id] = tour;
+    repository.CreateTour(name);
     
     return Results.Content(GetToursListHtml(tokens.RequestToken!), "text/html");
 });
@@ -51,17 +49,9 @@ app.MapPost("/tours", (IAntiforgery antiforgery, HttpContext httpContext, [FromF
 // Delete a tour
 app.MapDelete("/tours/{tourId}", (int tourId, IAntiforgery antiforgery, HttpContext context) =>
 {
-    // Remove all checkpoints for this tour
-    var tourCheckpoints = checkpoints.Values.Where(c => c.TourId == tourId).ToList();
-    foreach (var cp in tourCheckpoints)
-    {
-        checkpoints.Remove(cp.Id);
-    }
-    
-    tours.Remove(tourId);
+    repository.DeleteTour(tourId);
     
     var tokens = antiforgery.GetAndStoreTokens(context);
-    // Return updated tours list
     return Results.Content(GetToursListHtml(tokens.RequestToken!), "text/html");
 });
 
@@ -69,10 +59,7 @@ app.MapDelete("/tours/{tourId}", (int tourId, IAntiforgery antiforgery, HttpCont
 app.MapGet("/tours/{tourId}/checkpoints", (int tourId, IAntiforgery antiforgery, HttpContext context) =>
 {
     var tokens = antiforgery.GetAndStoreTokens(context);
-    var tourCheckpoints = checkpoints.Values
-        .Where(c => c.TourId == tourId)
-        .OrderBy(c => c.Order)
-        .ToList();
+    var tourCheckpoints = repository.GetCheckpointsForTour(tourId).ToList();
     
     return Results.Content(GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!), "text/html");
 });
@@ -80,9 +67,7 @@ app.MapGet("/tours/{tourId}/checkpoints", (int tourId, IAntiforgery antiforgery,
 // Get checkpoints as JSON for map display
 app.MapGet("/tours/{tourId}/checkpoints-json", (int tourId) =>
 {
-    var tourCheckpoints = checkpoints.Values
-        .Where(c => c.TourId == tourId)
-        .OrderBy(c => c.Order)
+    var tourCheckpoints = repository.GetCheckpointsForTour(tourId)
         .Select(cp => new {
             id = cp.Id,
             name = cp.Name,
@@ -97,25 +82,10 @@ app.MapGet("/tours/{tourId}/checkpoints-json", (int tourId) =>
 // Add a checkpoint
 app.MapPost("/tours/{tourId}/checkpoints", (int tourId, [FromForm] string name, IAntiforgery antiforgery, HttpContext context) =>
 {
-    var maxOrder = checkpoints.Values
-        .Where(c => c.TourId == tourId)
-        .Select(c => (int?)c.Order)
-        .Max() ?? -1;
-    
-    var checkpoint = new Checkpoint 
-    { 
-        Id = checkpointIdCounter++, 
-        TourId = tourId, 
-        Name = name,
-        Order = maxOrder + 1
-    };
-    checkpoints[checkpoint.Id] = checkpoint;
+    repository.CreateCheckpoint(tourId, name);
     
     var tokens = antiforgery.GetAndStoreTokens(context);
-    var tourCheckpoints = checkpoints.Values
-        .Where(c => c.TourId == tourId)
-        .OrderBy(c => c.Order)
-        .ToList();
+    var tourCheckpoints = repository.GetCheckpointsForTour(tourId).ToList();
     
     return Results.Content(GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!), "text/html");
 });
@@ -123,124 +93,78 @@ app.MapPost("/tours/{tourId}/checkpoints", (int tourId, [FromForm] string name, 
 // Delete a checkpoint
 app.MapDelete("/checkpoints/{checkpointId}", (int checkpointId, IAntiforgery antiforgery, HttpContext context) =>
 {
-    if (checkpoints.TryGetValue(checkpointId, out var checkpoint))
-    {
-        var tourId = checkpoint.TourId;
-        checkpoints.Remove(checkpointId);
-        
-        // Reorder remaining checkpoints
-        var remaining = checkpoints.Values
-            .Where(c => c.TourId == tourId)
-            .OrderBy(c => c.Order)
-            .ToList();
-        
-        for (int i = 0; i < remaining.Count; i++)
-        {
-            remaining[i].Order = i;
-        }
-        
-        var tokens = antiforgery.GetAndStoreTokens(context);
-        
-        // Add HX-Trigger header to trigger notification event
-        context.Response.Headers["HX-Trigger"] = """{"showNotification": {"message": "Checkpoint deleted", "duration": 2000}}""";
-        
-        return Results.Content(GetCheckpointsHtml(tourId, remaining, tokens.RequestToken!), "text/html");
-    }
+    var checkpoint = repository.GetCheckpoint(checkpointId);
+    if (checkpoint == null)
+        return Results.NotFound();
     
-    return Results.NotFound();
+    var tourId = checkpoint.TourId;
+    repository.DeleteCheckpoint(checkpointId);
+    
+    var tokens = antiforgery.GetAndStoreTokens(context);
+    var remaining = repository.GetCheckpointsForTour(tourId).ToList();
+    
+    // Add HX-Trigger header to trigger notification event
+    context.Response.Headers["HX-Trigger"] = """{"showNotification": {"message": "Checkpoint deleted", "duration": 2000}}""";
+    
+    return Results.Content(GetCheckpointsHtml(tourId, remaining, tokens.RequestToken!), "text/html");
 });
 
 // Move checkpoint before another
 app.MapPost("/checkpoints/{checkpointId}/move-before/{targetId}", (int checkpointId, int targetId, IAntiforgery antiforgery, HttpContext context) =>
 {
-    if (checkpoints.TryGetValue(checkpointId, out var checkpoint) && 
-        checkpoints.TryGetValue(targetId, out var target) &&
-        checkpoint.TourId == target.TourId)
-    {
-        var tourId = checkpoint.TourId;
-        var tourCheckpoints = checkpoints.Values
-            .Where(c => c.TourId == tourId)
-            .OrderBy(c => c.Order)
-            .ToList();
-        
-        tourCheckpoints.Remove(checkpoint);
-        var targetIndex = tourCheckpoints.IndexOf(target);
-        tourCheckpoints.Insert(targetIndex, checkpoint);
-        
-        for (int i = 0; i < tourCheckpoints.Count; i++)
-        {
-            tourCheckpoints[i].Order = i;
-        }
-        
-        var tokens = antiforgery.GetAndStoreTokens(context);
-        var html = GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!);
-        
-        // Add HX-Trigger header to trigger notification event
-        context.Response.Headers["HX-Trigger"] = """{"showNotification": {"message": "Successfully moved checkpoint up", "duration": 2000}}""";
-        
-        return Results.Content(html, "text/html");
-    }
+    if (!repository.MoveCheckpointBefore(checkpointId, targetId))
+        return Results.NotFound();
     
-    return Results.NotFound();
+    var checkpoint = repository.GetCheckpoint(checkpointId);
+    var tourId = checkpoint!.TourId;
+    var tourCheckpoints = repository.GetCheckpointsForTour(tourId).ToList();
+    
+    var tokens = antiforgery.GetAndStoreTokens(context);
+    var html = GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!);
+    
+    // Add HX-Trigger header to trigger notification event
+    context.Response.Headers["HX-Trigger"] = """{"showNotification": {"message": "Successfully moved checkpoint up", "duration": 2000}}""";
+    
+    return Results.Content(html, "text/html");
 });
 
 // Move checkpoint after another
 app.MapPost("/checkpoints/{checkpointId}/move-after/{targetId}", (int checkpointId, int targetId, IAntiforgery antiforgery, HttpContext context) =>
 {
-    if (checkpoints.TryGetValue(checkpointId, out var checkpoint) && 
-        checkpoints.TryGetValue(targetId, out var target) &&
-        checkpoint.TourId == target.TourId)
-    {
-        var tourId = checkpoint.TourId;
-        var tourCheckpoints = checkpoints.Values
-            .Where(c => c.TourId == tourId)
-            .OrderBy(c => c.Order)
-            .ToList();
-        
-        tourCheckpoints.Remove(checkpoint);
-        var targetIndex = tourCheckpoints.IndexOf(target);
-        tourCheckpoints.Insert(targetIndex + 1, checkpoint);
-        
-        for (int i = 0; i < tourCheckpoints.Count; i++)
-        {
-            tourCheckpoints[i].Order = i;
-        }
-        
-        var tokens = antiforgery.GetAndStoreTokens(context);
-        var html = GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!);
-        
-        // Add HX-Trigger header to trigger notification event
-        context.Response.Headers["HX-Trigger"] = """{"showNotification": {"message": "Successfully moved checkpoint down", "duration": 2000}}""";
-        
-        return Results.Content(html, "text/html");
-    }
+    if (!repository.MoveCheckpointAfter(checkpointId, targetId))
+        return Results.NotFound();
     
-    return Results.NotFound();
+    var checkpoint = repository.GetCheckpoint(checkpointId);
+    var tourId = checkpoint!.TourId;
+    var tourCheckpoints = repository.GetCheckpointsForTour(tourId).ToList();
+    
+    var tokens = antiforgery.GetAndStoreTokens(context);
+    var html = GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!);
+    
+    // Add HX-Trigger header to trigger notification event
+    context.Response.Headers["HX-Trigger"] = """{"showNotification": {"message": "Successfully moved checkpoint down", "duration": 2000}}""";
+    
+    return Results.Content(html, "text/html");
 });
 
 // Set checkpoint location
 app.MapPost("/checkpoints/{checkpointId}/location", async (int checkpointId, HttpContext context, IAntiforgery antiforgery) =>
 {
-    if (checkpoints.TryGetValue(checkpointId, out var checkpoint))
-    {
-        var json = await System.Text.Json.JsonDocument.ParseAsync(context.Request.Body);
-        var latitude = json.RootElement.GetProperty("latitude").GetDouble();
-        var longitude = json.RootElement.GetProperty("longitude").GetDouble();
-        
-        checkpoint.Latitude = latitude;
-        checkpoint.Longitude = longitude;
-        
-        var tourId = checkpoint.TourId;
-        var tokens = antiforgery.GetAndStoreTokens(context);
-        var tourCheckpoints = checkpoints.Values
-            .Where(c => c.TourId == tourId)
-            .OrderBy(c => c.Order)
-            .ToList();
-        
-        return Results.Content(GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!), "text/html");
-    }
+    var checkpoint = repository.GetCheckpoint(checkpointId);
+    if (checkpoint == null)
+        return Results.NotFound();
     
-    return Results.NotFound();
+    var json = await JsonDocument.ParseAsync(context.Request.Body);
+    var latitude = json.RootElement.GetProperty("latitude").GetDouble();
+    var longitude = json.RootElement.GetProperty("longitude").GetDouble();
+    
+    repository.UpdateCheckpointLocation(checkpointId, latitude, longitude);
+    
+    var tourId = checkpoint.TourId;
+    var tokens = antiforgery.GetAndStoreTokens(context);
+    var tourCheckpoints = repository.GetCheckpointsForTour(tourId).ToList();
+    
+    return Results.Content(GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!), "text/html");
 });
 
 app.UseAntiforgery();
@@ -590,12 +514,10 @@ string GetHomePage(string antiforgeryToken)
 string GetToursListHtml(string antiforgeryToken)
 {
     var html = "";
-    foreach (var tour in tours.Values.OrderBy(t => t.Id))
+    foreach (var tour in repository.GetAllTours())
     {
         // Get checkpoints for this tour as JSON
-        var tourCheckpoints = checkpoints.Values
-            .Where(c => c.TourId == tour.Id)
-            .OrderBy(c => c.Order)
+        var tourCheckpoints = repository.GetCheckpointsForTour(tour.Id)
             .Select(cp => new {
                 id = cp.Id,
                 name = cp.Name,
@@ -603,7 +525,7 @@ string GetToursListHtml(string antiforgeryToken)
                 longitude = cp.Longitude
             })
             .ToList();
-        var checkpointsJson = System.Text.Json.JsonSerializer.Serialize(tourCheckpoints);
+        var checkpointsJson = JsonSerializer.Serialize(tourCheckpoints);
         
         html += $@"
             <div class=""bg-white p-4 rounded-lg shadow mb-4"" data-tour-id=""{tour.Id}"" data-checkpoints='{checkpointsJson}'>
@@ -777,4 +699,236 @@ record Checkpoint
     public int Order { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
+}
+
+// Repository for persisting tours and checkpoints
+class ToursRepository
+{
+    private readonly string _filePath;
+    private Dictionary<int, Tour> _tours = new();
+    private Dictionary<int, Checkpoint> _checkpoints = new();
+    private int _tourIdCounter = 1;
+    private int _checkpointIdCounter = 1;
+    private readonly object _lock = new();
+
+    public ToursRepository(IConfiguration configuration)
+    {
+        _filePath = configuration.GetValue<string>("DataFilePath") ?? "tours-data.json";
+        Load();
+    }
+
+    // Tour operations
+    public IEnumerable<Tour> GetAllTours() => _tours.Values.OrderBy(t => t.Id);
+
+    public Tour? GetTour(int id) => _tours.GetValueOrDefault(id);
+
+    public Tour CreateTour(string name)
+    {
+        lock (_lock)
+        {
+            var tour = new Tour { Id = _tourIdCounter++, Name = name };
+            _tours[tour.Id] = tour;
+            Save();
+            return tour;
+        }
+    }
+
+    public bool DeleteTour(int tourId)
+    {
+        lock (_lock)
+        {
+            if (!_tours.Remove(tourId))
+                return false;
+
+            // Remove all checkpoints for this tour
+            var checkpointsToRemove = _checkpoints.Values
+                .Where(c => c.TourId == tourId)
+                .Select(c => c.Id)
+                .ToList();
+
+            foreach (var cpId in checkpointsToRemove)
+            {
+                _checkpoints.Remove(cpId);
+            }
+
+            Save();
+            return true;
+        }
+    }
+
+    // Checkpoint operations
+    public IEnumerable<Checkpoint> GetCheckpointsForTour(int tourId) =>
+        _checkpoints.Values
+            .Where(c => c.TourId == tourId)
+            .OrderBy(c => c.Order);
+
+    public Checkpoint? GetCheckpoint(int id) => _checkpoints.GetValueOrDefault(id);
+
+    public Checkpoint CreateCheckpoint(int tourId, string name)
+    {
+        lock (_lock)
+        {
+            var maxOrder = _checkpoints.Values
+                .Where(c => c.TourId == tourId)
+                .Select(c => (int?)c.Order)
+                .Max() ?? -1;
+
+            var checkpoint = new Checkpoint
+            {
+                Id = _checkpointIdCounter++,
+                TourId = tourId,
+                Name = name,
+                Order = maxOrder + 1
+            };
+            _checkpoints[checkpoint.Id] = checkpoint;
+            Save();
+            return checkpoint;
+        }
+    }
+
+    public bool DeleteCheckpoint(int checkpointId)
+    {
+        lock (_lock)
+        {
+            if (!_checkpoints.TryGetValue(checkpointId, out var checkpoint))
+                return false;
+
+            var tourId = checkpoint.TourId;
+            _checkpoints.Remove(checkpointId);
+
+            // Reorder remaining checkpoints
+            var remaining = _checkpoints.Values
+                .Where(c => c.TourId == tourId)
+                .OrderBy(c => c.Order)
+                .ToList();
+
+            for (int i = 0; i < remaining.Count; i++)
+            {
+                remaining[i].Order = i;
+            }
+
+            Save();
+            return true;
+        }
+    }
+
+    public bool UpdateCheckpointLocation(int checkpointId, double latitude, double longitude)
+    {
+        lock (_lock)
+        {
+            if (!_checkpoints.TryGetValue(checkpointId, out var checkpoint))
+                return false;
+
+            checkpoint.Latitude = latitude;
+            checkpoint.Longitude = longitude;
+            Save();
+            return true;
+        }
+    }
+
+    public bool MoveCheckpointBefore(int checkpointId, int targetId)
+    {
+        lock (_lock)
+        {
+            if (!_checkpoints.TryGetValue(checkpointId, out var checkpoint) ||
+                !_checkpoints.TryGetValue(targetId, out var target) ||
+                checkpoint.TourId != target.TourId)
+                return false;
+
+            var tourId = checkpoint.TourId;
+            var tourCheckpoints = _checkpoints.Values
+                .Where(c => c.TourId == tourId)
+                .OrderBy(c => c.Order)
+                .ToList();
+
+            tourCheckpoints.Remove(checkpoint);
+            var targetIndex = tourCheckpoints.IndexOf(target);
+            tourCheckpoints.Insert(targetIndex, checkpoint);
+
+            for (int i = 0; i < tourCheckpoints.Count; i++)
+            {
+                tourCheckpoints[i].Order = i;
+            }
+
+            Save();
+            return true;
+        }
+    }
+
+    public bool MoveCheckpointAfter(int checkpointId, int targetId)
+    {
+        lock (_lock)
+        {
+            if (!_checkpoints.TryGetValue(checkpointId, out var checkpoint) ||
+                !_checkpoints.TryGetValue(targetId, out var target) ||
+                checkpoint.TourId != target.TourId)
+                return false;
+
+            var tourId = checkpoint.TourId;
+            var tourCheckpoints = _checkpoints.Values
+                .Where(c => c.TourId == tourId)
+                .OrderBy(c => c.Order)
+                .ToList();
+
+            tourCheckpoints.Remove(checkpoint);
+            var targetIndex = tourCheckpoints.IndexOf(target);
+            tourCheckpoints.Insert(targetIndex + 1, checkpoint);
+
+            for (int i = 0; i < tourCheckpoints.Count; i++)
+            {
+                tourCheckpoints[i].Order = i;
+            }
+
+            Save();
+            return true;
+        }
+    }
+
+    // Persistence
+    private void Save()
+    {
+        var data = new RepositoryData
+        {
+            Tours = _tours,
+            Checkpoints = _checkpoints,
+            TourIdCounter = _tourIdCounter,
+            CheckpointIdCounter = _checkpointIdCounter
+        };
+
+        var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(_filePath, json);
+    }
+
+    private void Load()
+    {
+        if (!File.Exists(_filePath))
+            return;
+
+        try
+        {
+            var json = File.ReadAllText(_filePath);
+            var data = JsonSerializer.Deserialize<RepositoryData>(json);
+
+            if (data != null)
+            {
+                _tours = data.Tours ?? new();
+                _checkpoints = data.Checkpoints ?? new();
+                _tourIdCounter = data.TourIdCounter;
+                _checkpointIdCounter = data.CheckpointIdCounter;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading data: {ex.Message}");
+            // Continue with empty data
+        }
+    }
+
+    private class RepositoryData
+    {
+        public Dictionary<int, Tour> Tours { get; set; } = new();
+        public Dictionary<int, Checkpoint> Checkpoints { get; set; } = new();
+        public int TourIdCounter { get; set; }
+        public int CheckpointIdCounter { get; set; }
+    }
 }
