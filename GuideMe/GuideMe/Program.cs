@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -31,12 +32,13 @@ app.MapGet("/tours", (Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery,
 });
 
 // Create a new tour
-app.MapPost("/tours", ([FromForm] string name) =>
+app.MapPost("/tours", (IAntiforgery antiforgery, HttpContext httpContext, [FromForm] string name) =>
 {
+    var tokens = antiforgery.GetAndStoreTokens(httpContext);
     var tour = new Tour { Id = tourIdCounter++, Name = name };
     tours[tour.Id] = tour;
     
-    return Results.Content("", "text/html", statusCode: 200);
+    return Results.Content(GetToursListHtml(tokens.RequestToken!), "text/html");
 });
 
 // Delete a tour
