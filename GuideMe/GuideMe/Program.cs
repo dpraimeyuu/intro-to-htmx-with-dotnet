@@ -133,6 +133,10 @@ app.MapDelete("/checkpoints/{checkpointId}", (int checkpointId, IAntiforgery ant
         }
         
         var tokens = antiforgery.GetAndStoreTokens(context);
+        
+        // Add HX-Trigger header to trigger notification event
+        context.Response.Headers["HX-Trigger"] = """{"showNotification": {"message": "Checkpoint deleted", "duration": 2000}}""";
+        
         return Results.Content(GetCheckpointsHtml(tourId, remaining, tokens.RequestToken!), "text/html");
     }
     
@@ -162,7 +166,12 @@ app.MapPost("/checkpoints/{checkpointId}/move-before/{targetId}", (int checkpoin
         }
         
         var tokens = antiforgery.GetAndStoreTokens(context);
-        return Results.Content(GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!), "text/html");
+        var html = GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!);
+        
+        // Add HX-Trigger header to trigger notification event
+        context.Response.Headers["HX-Trigger"] = """{"showNotification": {"message": "Successfully moved checkpoint up", "duration": 2000}}""";
+        
+        return Results.Content(html, "text/html");
     }
     
     return Results.NotFound();
@@ -191,7 +200,12 @@ app.MapPost("/checkpoints/{checkpointId}/move-after/{targetId}", (int checkpoint
         }
         
         var tokens = antiforgery.GetAndStoreTokens(context);
-        return Results.Content(GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!), "text/html");
+        var html = GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!);
+        
+        // Add HX-Trigger header to trigger notification event
+        context.Response.Headers["HX-Trigger"] = """{"showNotification": {"message": "Successfully moved checkpoint down", "duration": 2000}}""";
+        
+        return Results.Content(html, "text/html");
     }
     
     return Results.NotFound();
@@ -283,6 +297,13 @@ string GetHomePage(string antiforgeryToken)
                    document.body.addEventListener('htmx:swapError', function(evt) {{
                        console.error('❌ HTMX Swap Error:', evt.detail);
                    }});
+                   
+                   // Listen for custom showNotification events triggered by HX-Trigger header
+                   document.body.addEventListener('showNotification', function(evt) {{
+                       if (evt.detail && evt.detail.message) {{
+                           showNotification(evt.detail.message, evt.detail.duration || 3000);
+                       }}
+                   }});
                </script>
                <div class=""container mx-auto px-4 max-w-7xl"">
                    <h1 class=""text-3xl font-bold text-gray-800 mb-8"">Tour Planner</h1>
@@ -327,6 +348,9 @@ string GetHomePage(string antiforgeryToken)
                <div id=""notification"" class=""fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg hidden transition-opacity duration-300"">
                    <span id=""notification-text""></span>
                </div>
+               
+               <!-- Hidden div for OOB notification triggers -->
+               <div id=""notification-trigger"" style=""display:none;""></div>
                
                <script>
                    // Show notification
