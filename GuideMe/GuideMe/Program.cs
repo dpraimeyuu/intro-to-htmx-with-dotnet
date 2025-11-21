@@ -71,7 +71,7 @@ app.MapGet("/tours/{tourId}/checkpoints", (int tourId, IAntiforgery antiforgery,
 });
 
 // Add a checkpoint
-app.MapPost("/tours/{tourId}/checkpoints", (int tourId, string name, IAntiforgery antiforgery, HttpContext context) =>
+app.MapPost("/tours/{tourId}/checkpoints", (int tourId, [FromForm] string name, IAntiforgery antiforgery, HttpContext context) =>
 {
     var maxOrder = checkpoints.Values
         .Where(c => c.TourId == tourId)
@@ -246,7 +246,8 @@ string GetToursListHtml(string antiforgeryToken)
                 <div id=""checkpoints-{tour.Id}"" hx-get=""/tours/{tour.Id}/checkpoints"" hx-trigger=""load"" hx-swap=""innerHTML"">
                     Loading checkpoints...
                 </div>
-                <form hx-post=""/tours/{tour.Id}/checkpoints"" hx-target=""#checkpoints-{tour.Id}"" hx-swap=""innerHTML"" class=""mt-3"">
+                <form hx-post=""/tours/{tour.Id}/checkpoints"" hx-target=""#checkpoints-{tour.Id}"" hx-swap=""innerHTML"" class=""mt-3""
+                    hx-on::after-request=""this.reset()"">
                     <input type=""hidden"" name=""__RequestVerificationToken"" value=""{antiforgeryToken}"" />
                     <div class=""flex gap-2"">
                         <input type=""text"" name=""name"" placeholder=""Checkpoint name"" required 
