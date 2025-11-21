@@ -346,7 +346,7 @@ string GetHomePage(string antiforgeryToken)
                </div>
                
                <!-- Notification toast -->
-               <div id=""notification"" class=""fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg hidden transition-opacity duration-300"">
+               <div id=""notification"" class=""fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg hidden transition-opacity duration-300"" style=""z-index: 9999;"">
                    <span id=""notification-text""></span>
                </div>
                
