@@ -180,6 +180,31 @@ app.MapPost("/checkpoints/{checkpointId}/move-after/{targetId}", (int checkpoint
     return Results.NotFound();
 });
 
+// Set checkpoint location
+app.MapPost("/checkpoints/{checkpointId}/location", async (int checkpointId, HttpContext context, IAntiforgery antiforgery) =>
+{
+    if (checkpoints.TryGetValue(checkpointId, out var checkpoint))
+    {
+        var json = await System.Text.Json.JsonDocument.ParseAsync(context.Request.Body);
+        var latitude = json.RootElement.GetProperty("latitude").GetDouble();
+        var longitude = json.RootElement.GetProperty("longitude").GetDouble();
+        
+        checkpoint.Latitude = latitude;
+        checkpoint.Longitude = longitude;
+        
+        var tourId = checkpoint.TourId;
+        var tokens = antiforgery.GetAndStoreTokens(context);
+        var tourCheckpoints = checkpoints.Values
+            .Where(c => c.TourId == tourId)
+            .OrderBy(c => c.Order)
+            .ToList();
+        
+        return Results.Content(GetCheckpointsHtml(tourId, tourCheckpoints, tokens.RequestToken!), "text/html");
+    }
+    
+    return Results.NotFound();
+});
+
 app.UseAntiforgery();
 
 app.Run();
@@ -187,42 +212,162 @@ app.Run();
 // Helper functions
 string GetHomePage(string antiforgeryToken)
 {
-    return $"""
-
+    return @$"
            <!DOCTYPE html>
-           <html lang="en">
+           <html lang=""en"">
            <head>
-               <meta charset="UTF-8">
-               <meta name="viewport" content="width=device-width, initial-scale=1.0">
+               <meta charset=""UTF-8"">
+               <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
                <title>Tour Planner</title>
-               <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-               <script src="https://cdn.tailwindcss.com"></script>
+               <script src=""https://unpkg.com/htmx.org@1.9.10""></script>
+               <script src=""https://cdn.tailwindcss.com""></script>
+               <link rel=""stylesheet"" href=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"" />
+               <script src=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.js""></script>
+               <style>
+                   #map {{ height: calc(100vh - 4rem); }}
+               </style>
            </head>
-           <body class="bg-gray-100 min-h-screen py-8">
-               <div class="container mx-auto px-4 max-w-4xl">
-                   <h1 class="text-3xl font-bold text-gray-800 mb-8">Tour Planner</h1>
+           <body class=""bg-gray-100 min-h-screen py-8"" hx-ext=""debug"">
+               <script>
+                   // Enable htmx logging
+                   htmx.logAll();
                    
-                   <div class="bg-white p-6 rounded-lg shadow mb-6">
-                       <h2 class="text-xl font-semibold mb-4">Create New Tour</h2>
-                       <form hx-post="/tours" hx-target="#tours-list" hx-swap="innerHTML" hx-on::after-request="this.reset()">
-                           <input type="hidden" name="__RequestVerificationToken" value="{antiforgeryToken}" />
-                           <div class="flex gap-2">
-                               <input type="text" name="name" placeholder="Tour name" required 
-                                      class="flex-1 px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
-                               <button type="submit" class="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600">
-                                   Create Tour
-                               </button>
+                   // Add custom event listeners for debugging
+                   document.body.addEventListener('htmx:beforeRequest', function(evt) {{
+                       console.log('🚀 HTMX Request Starting:', {{
+                           target: evt.detail.target,
+                           verb: evt.detail.verb,
+                           path: evt.detail.path,
+                           headers: evt.detail.headers,
+                           parameters: evt.detail.parameters
+                       }});
+                   }});
+                   
+                   document.body.addEventListener('htmx:afterRequest', function(evt) {{
+                       console.log('✅ HTMX Request Complete:', {{
+                           successful: evt.detail.successful,
+                           status: evt.detail.xhr.status,
+                           response: evt.detail.xhr.responseText.substring(0, 200) + '...'
+                       }});
+                   }});
+                   
+                   document.body.addEventListener('htmx:responseError', function(evt) {{
+                       console.error('❌ HTMX Response Error:', {{
+                           status: evt.detail.xhr.status,
+                           statusText: evt.detail.xhr.statusText,
+                           response: evt.detail.xhr.responseText
+                       }});
+                   }});
+                   
+                   document.body.addEventListener('htmx:sendError', function(evt) {{
+                       console.error('❌ HTMX Send Error:', evt.detail);
+                   }});
+                   
+                   document.body.addEventListener('htmx:swapError', function(evt) {{
+                       console.error('❌ HTMX Swap Error:', evt.detail);
+                   }});
+               </script>
+               <div class=""container mx-auto px-4 max-w-7xl"">
+                   <h1 class=""text-3xl font-bold text-gray-800 mb-8"">Tour Planner</h1>
+                   
+                   <div class=""grid grid-cols-1 lg:grid-cols-2 gap-6"">
+                       <!-- Left Panel: Tours and Checkpoints -->
+                       <div>
+                           <div class=""bg-white p-6 rounded-lg shadow mb-6"">
+                               <h2 class=""text-xl font-semibold mb-4"">Create New Tour</h2>
+                               <form hx-post=""/tours"" hx-target=""#tours-list"" hx-swap=""innerHTML"" hx-on::after-request=""this.reset()"">
+                                   <input type=""hidden"" name=""__RequestVerificationToken"" value=""{antiforgeryToken}"" />
+                                   <div class=""flex gap-2"">
+                                       <input type=""text"" name=""name"" placeholder=""Tour name"" required 
+                                              class=""flex-1 px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"">
+                                       <button type=""submit"" class=""bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600"">
+                                           Create Tour
+                                       </button>
+                                   </div>
+                               </form>
                            </div>
-                       </form>
-                   </div>
-                   
-                   <div id="tours-list" hx-get="/tours" hx-trigger="load" hx-swap="innerHTML">
-                       Loading tours...
+                           
+                           <div id=""tours-list"" hx-get=""/tours"" hx-trigger=""load"" hx-swap=""innerHTML"">
+                               Loading tours...
+                           </div>
+                       </div>
+                       
+                       <!-- Right Panel: Map -->
+                       <div class=""bg-white rounded-lg shadow overflow-hidden sticky top-8"">
+                           <div id=""map""></div>
+                       </div>
                    </div>
                </div>
+               
+               <script>
+                   // Initialize map
+                   var map = L.map('map').setView([51.505, -0.09], 13);
+                   L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                       attribution: '© OpenStreetMap contributors',
+                       maxZoom: 19
+                   }}).addTo(map);
+                   
+                   var markers = {{}};
+                   var selectedCheckpoint = null;
+                   
+                   // Function to update markers
+                   window.updateMapMarkers = function(checkpoints) {{
+                       // Clear existing markers
+                       Object.values(markers).forEach(marker => map.removeLayer(marker));
+                       markers = {{}};
+                       
+                       // Add new markers
+                       checkpoints.forEach((cp, index) => {{
+                           if (cp.latitude && cp.longitude) {{
+                               var marker = L.marker([cp.latitude, cp.longitude])
+                                   .addTo(map)
+                                   .bindPopup('<b>' + (index + 1) + '. ' + cp.name + '</b>');
+                               markers[cp.id] = marker;
+                           }}
+                       }});
+                       
+                       // Fit bounds if there are markers
+                       if (Object.keys(markers).length > 0) {{
+                           var group = L.featureGroup(Object.values(markers));
+                           map.fitBounds(group.getBounds().pad(0.1));
+                       }}
+                   }};
+                   
+                   // Function to select checkpoint for location
+                   window.selectCheckpointForLocation = function(checkpointId, tourId) {{
+                       selectedCheckpoint = {{ id: checkpointId, tourId: tourId }};
+                       document.body.style.cursor = 'crosshair';
+                       alert('Click on the map to set the location for this checkpoint');
+                   }};
+                   
+                   // Map click handler
+                   map.on('click', function(e) {{
+                       if (selectedCheckpoint) {{
+                           // Send location update
+                           fetch('/checkpoints/' + selectedCheckpoint.id + '/location', {{
+                               method: 'POST',
+                               headers: {{
+                                   'Content-Type': 'application/json',
+                                   'X-CSRF-TOKEN': document.querySelector('input[name=""__RequestVerificationToken""]').value
+                               }},
+                               body: JSON.stringify({{
+                                   latitude: e.latlng.lat,
+                                   longitude: e.latlng.lng
+                               }})
+                           }})
+                           .then(response => response.text())
+                           .then(html => {{
+                               // Update checkpoints list
+                               document.getElementById('checkpoints-' + selectedCheckpoint.tourId).innerHTML = html;
+                               selectedCheckpoint = null;
+                               document.body.style.cursor = 'default';
+                           }});
+                       }}
+                   }});
+               </script>
            </body>
            </html>
-           """;
+           ";
 }
 
 string GetToursListHtml(string antiforgeryToken)
@@ -270,18 +415,42 @@ string GetCheckpointsHtml(int tourId, List<Checkpoint> tourCheckpoints, string a
         return @"<p class=""text-gray-500 text-sm"">No checkpoints yet. Add your first checkpoint below!</p>";
     }
     
-    var html = @"<div class=""space-y-2"">";
+    // Build JSON for map markers
+    var checkpointsJson = System.Text.Json.JsonSerializer.Serialize(
+        tourCheckpoints.Select(cp => new {
+            id = cp.Id,
+            name = cp.Name,
+            latitude = cp.Latitude,
+            longitude = cp.Longitude
+        })
+    );
+    
+    // Start with the main content div
+    var html = $@"<div class=""space-y-2"">";
     
     for (int i = 0; i < tourCheckpoints.Count; i++)
     {
         var cp = tourCheckpoints[i];
         var prevCheckpoint = i > 0 ? tourCheckpoints[i - 1] : null;
         var nextCheckpoint = i < tourCheckpoints.Count - 1 ? tourCheckpoints[i + 1] : null;
+        var hasLocation = cp.Latitude.HasValue && cp.Longitude.HasValue;
         
         html += $@"
-            <div class=""flex items-center gap-2 bg-gray-50 p-3 rounded"">
+            <div class=""flex items-center gap-2 bg-gray-50 p-3 rounded {(hasLocation ? "" : "border-2 border-yellow-300")}"">
                 <span class=""flex-1 font-medium"">{cp.Order + 1}. {cp.Name}</span>
                 <div class=""flex gap-1"">";
+        
+        // Show locate button if no location
+        if (!hasLocation)
+        {
+            html += $@"
+                    <button 
+                        onclick=""selectCheckpointForLocation({cp.Id}, {tourId})""
+                        class=""bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm font-semibold""
+                        title=""Click to locate on map"">
+                        📍 Locate
+                    </button>";
+        }
         
         // Up arrow button (move before previous checkpoint)
         if (prevCheckpoint != null)
@@ -340,7 +509,19 @@ string GetCheckpointsHtml(int tourId, List<Checkpoint> tourCheckpoints, string a
             </div>";
     }
     
+    // Close the main div
     html += "</div>";
+    
+    // Add OOB swap to update map markers
+    html += $@"
+        <div id=""map-update"" hx-swap-oob=""true"">
+            <script>
+                if (window.updateMapMarkers) {{
+                    window.updateMapMarkers({checkpointsJson});
+                }}
+            </script>
+        </div>";
+    
     return html;
 }
 
@@ -357,4 +538,6 @@ record Checkpoint
     public int TourId { get; set; }
     public string Name { get; set; } = "";
     public int Order { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
 }
