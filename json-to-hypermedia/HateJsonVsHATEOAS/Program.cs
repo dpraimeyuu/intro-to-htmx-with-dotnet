@@ -2,11 +2,11 @@ var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
 
 app.MapGet("/", () => Results.Content(File.ReadAllText("index.html"), "text/html"));
-var refreshingSessionsUsage = 0;
+var currentRefreshingSession = new RefreshingSession();
 app.MapGet("/current-time", () => Results.Json(new
 {
     time = DateTime.UtcNow,
-    refreshingSessionsLimitReached = refreshingSessionsUsage >= 5,
+    refreshingSessionsLimitReached = currentRefreshingSession.HasReachedLimit(),
     _links = new
     {
         reload = new { href = "/" }
@@ -14,7 +14,19 @@ app.MapGet("/current-time", () => Results.Json(new
 }));
 app.MapPut("/time/refreshing", () =>
 {
-    refreshingSessionsUsage++;
+    try
+    {
+        currentRefreshingSession.Use();
+    }
+    catch (Exception e)
+    {
+        Console.WriteLine(e);
+    }
+    
+    return Results.Json(new
+    {
+        refreshingSessionsLimitReached = currentRefreshingSession.HasReachedLimit()
+    });
 });
 
 app.MapGet("/hypermedia", () => Results.Content("""
@@ -67,6 +79,16 @@ app.MapGet("/current-time/refreshing/stop", () =>
 });
 
 app.Run();
+
+class RefreshingSession(int Usage = 0)
+{
+    public void Use()
+    {
+        if(HasReachedLimit()) throw new InvalidOperationException("Refreshing sessions limit reached.");
+        Usage++;
+    }
+    public bool HasReachedLimit() => Usage >= 5;
+}
 
 public static class Components
 {

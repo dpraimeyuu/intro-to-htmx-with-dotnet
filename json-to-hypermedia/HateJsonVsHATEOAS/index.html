@@ -28,9 +28,11 @@
 
                 const refreshingButton = document.createElement("button");
                 refreshingButton.onclick = function() {
-                    const interval = startRefreshingCurrentTime(refreshingButton)
+                    startRefreshingCurrentTime(refreshingButton)
+                        .then((interval) => {
+                            this.onclick = stopRefreshingCurrentTime(interval, this);
+                        })
                     
-                    this.onclick = stopRefreshingCurrentTime(interval, this);
                     return false; // Prevent default link behavior
                 };
                 refreshingButton.href = "#";
@@ -45,14 +47,18 @@
     }
     
     function startRefreshingCurrentTime(button) {
-        button.textContent = "stop refreshing";
-        return setInterval(() => {
-            fetchCurrentTime()
-                .then(data => {
-                    const timeContainer = document.getElementById("time");
-                    timeContainer.innerHTML = `Current Time: ${data.time}`;
-                })
-        }, 1000)
+        return fetch("time/refreshing", {method: "PUT"})
+            .then((response) => response.json())
+            .then((data) => {
+                button.textContent = "stop refreshing";
+                return setInterval(() => {
+                    fetchCurrentTime()
+                        .then(data => {
+                            const timeContainer = document.getElementById("time");
+                            timeContainer.innerHTML = `Current Time: ${data.time}`;
+                        })
+                }, 1000) 
+            });
     }
     
     function stopRefreshingCurrentTime(interval, button) {
@@ -60,8 +66,10 @@
             clearInterval(interval);
             button.textContent = "start refreshing";
             button.onclick = function() {
-                const newInterval = startRefreshingCurrentTime(button);
-                this.onclick = stopRefreshingCurrentTime(newInterval, this);
+                startRefreshingCurrentTime(button)
+                    .then((newInterval) => {
+                        this.onclick = stopRefreshingCurrentTime(newInterval, this);
+                    })
                 return false; // Prevent default link behavior
             };
             return false;
