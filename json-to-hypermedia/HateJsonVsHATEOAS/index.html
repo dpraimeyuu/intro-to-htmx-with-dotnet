@@ -27,6 +27,11 @@
                 }
 
                 const refreshingButton = document.createElement("button");
+                if(data.refreshingSessionsLimitReached)
+                {
+                    refreshingButton.disabled = true;
+                    refreshingButton.title = "Refreshing sessions limit reached";
+                }
                 refreshingButton.onclick = function() {
                     startRefreshingCurrentTime(refreshingButton)
                         .then((interval) => {
@@ -50,6 +55,11 @@
         return fetch("time/refreshing", {method: "PUT"})
             .then((response) => response.json())
             .then((data) => {
+                if(data.refreshingSessionsLimitReached)
+                {
+                    button.disabled = true;
+                    button.title = "Refreshing sessions limit reached";
+                }
                 button.textContent = "stop refreshing";
                 return setInterval(() => {
                     fetchCurrentTime()
