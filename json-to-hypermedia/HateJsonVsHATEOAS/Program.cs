@@ -45,7 +45,6 @@ app.MapGet("/hypermedia", () => Results.Content("""
 app.MapGet("/current-time/load", () => Results.Content($"""
     {Components.CurrentTime.Static()}
     <a
-        style="cursor: pointer; text-decoration: underline;"
         hx-get="/current-time/load" 
         hx-swap="innerHTML"
         hx-trigger="click"
@@ -96,8 +95,7 @@ public static class Components
     {
         string swapping = forSwapping? "hx-swap-oob=\"true\"" : "";
         return $"""
-                <a
-                    style="cursor: pointer; text-decoration: underline;"
+                <button
                     hx-get="/current-time/refreshing/start" 
                     hx-swap="innerHTML"
                     hx-trigger="click"
@@ -106,15 +104,14 @@ public static class Components
                     id="refreshing"
                 >
                     start refreshing
-                </a>
+                </button>
                 """;
     }
 
     public static string StopRefreshingLink()
     {
         return """
-               <a
-                   style="cursor: pointer; text-decoration: underline;"
+               <button
                    hx-get="/current-time/refreshing/stop" 
                    hx-swap="innerHTML"
                    hx-trigger="click"
@@ -123,7 +120,7 @@ public static class Components
                    hx-swap-oob="true"
                >
                    stop refreshing
-               </a>
+               </button>
                """;
     }
 
