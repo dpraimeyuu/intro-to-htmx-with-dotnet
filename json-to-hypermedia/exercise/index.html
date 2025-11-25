@@ -27,16 +27,9 @@
                 }
 
                 const refreshingButton = document.createElement("button");
-                if(data.refreshingSessionsLimitReached)
-                {
-                    refreshingButton.disabled = true;
-                    refreshingButton.title = "Refreshing sessions limit reached";
-                }
                 refreshingButton.onclick = function() {
-                    startRefreshingCurrentTime(refreshingButton)
-                        .then((interval) => {
-                            this.onclick = stopRefreshingCurrentTime(interval, this);
-                        })
+                    const interval = startRefreshingCurrentTime(refreshingButton)
+                    this.onclick = stopRefreshingCurrentTime(interval, this);
                     
                     return false; // Prevent default link behavior
                 };
@@ -52,23 +45,14 @@
     }
     
     function startRefreshingCurrentTime(button) {
-        return fetch("time/refreshing", {method: "PUT"})
-            .then((response) => response.json())
-            .then((data) => {
-                if(data.refreshingSessionsLimitReached)
-                {
-                    button.disabled = true;
-                    button.title = "Refreshing sessions limit reached";
-                }
-                button.textContent = "stop refreshing";
-                return setInterval(() => {
-                    fetchCurrentTime()
-                        .then(data => {
-                            const timeContainer = document.getElementById("time");
-                            timeContainer.innerHTML = `Current Time: ${data.time}`;
-                        })
-                }, 1000) 
-            });
+        button.textContent = "stop refreshing";
+        return setInterval(() => {
+            fetchCurrentTime()
+                .then(data => {
+                    const timeContainer = document.getElementById("time");
+                    timeContainer.innerHTML = `Current Time: ${data.time}`;
+                })
+        }, 1000)
     }
     
     function stopRefreshingCurrentTime(interval, button) {
@@ -76,10 +60,8 @@
             clearInterval(interval);
             button.textContent = "start refreshing";
             button.onclick = function() {
-                startRefreshingCurrentTime(button)
-                    .then((newInterval) => {
-                        this.onclick = stopRefreshingCurrentTime(newInterval, this);
-                    })
+                const newInterval = startRefreshingCurrentTime(button)
+                this.onclick = stopRefreshingCurrentTime(newInterval, this);
                 return false; // Prevent default link behavior
             };
             return false;
