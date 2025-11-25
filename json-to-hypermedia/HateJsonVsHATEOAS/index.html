@@ -4,15 +4,18 @@
     Loading current time...
 </div>
 <script>
-    document.body.onload = () => {
-        fetchCurrentTime();
-    };
     function fetchCurrentTime() {
-        fetch("/current-time")
+        return fetch("/current-time")
             .then((response) => response.json())
+    }
+    document.body.onload = () => {
+        loadCurrentTime();
+    };
+    function loadCurrentTime() {
+        fetchCurrentTime()
             .then((data) => {
                 const timeContainer = document.getElementById("time-container");
-                timeContainer.innerHTML = `Current Time: ${data.time}<br/>`;
+                timeContainer.innerHTML = `<span id="time">Current Time: ${data.time}</span><br/>`;
                 const links = data._links;
                 for (const rel in links) {
                     const link = links[rel];
@@ -23,16 +26,45 @@
                     timeContainer.appendChild(document.createTextNode(" ")); // Add space between links
                 }
 
-                const anchor = document.createElement("a");
-                anchor.onclick = fetchCurrentTime;
-                anchor.href = "#";
-                anchor.textContent = "check time";
-                timeContainer.appendChild(anchor);
+                const refreshingButton = document.createElement("a");
+                refreshingButton.onclick = function() {
+                    const interval = startRefreshingCurrentTime(refreshingButton)
+                    
+                    this.onclick = stopRefreshingCurrentTime(interval, this);
+                    return false; // Prevent default link behavior
+                };
+                refreshingButton.href = "#";
+                refreshingButton.textContent = "start refreshing";
+                timeContainer.appendChild(refreshingButton);
             })
             .catch((error) => {
                 console.error("Error fetching current time:", error);
                 const timeContainer = document.getElementById("time-container");
                 timeContainer.innerHTML = "Failed to load current time.";
             });
-    } 
+    }
+    
+    function startRefreshingCurrentTime(anchor) {
+        anchor.textContent = "stop refreshing";
+        return setInterval(() => {
+            fetchCurrentTime()
+                .then(data => {
+                    const timeContainer = document.getElementById("time");
+                    timeContainer.innerHTML = `Current Time: ${data.time}`;
+                })
+        }, 1000)
+    }
+    
+    function stopRefreshingCurrentTime(interval, anchor) {
+        return function() {
+            clearInterval(interval);
+            anchor.textContent = "start refreshing";
+            anchor.onclick = function() {
+                const newInterval = startRefreshingCurrentTime(anchor);
+                this.onclick = stopRefreshingCurrentTime(newInterval, this);
+                return false; // Prevent default link behavior
+            };
+            return false;
+        };
+    }
 </script>
