@@ -1,0 +1,22 @@
+# Build results
+bin/
+obj/
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.swp
+*.swo
+*~
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
