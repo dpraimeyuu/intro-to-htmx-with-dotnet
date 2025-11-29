@@ -12,7 +12,7 @@ In order to keep the exercises simple and focused on HTMX capabilities and hyper
 It covers three topics:
 * basic intro to HTMX principles (hypermedia) by exploring its syntax and capabilities through a simple exercise called [0-quick-intro-to-htmx](./0-quick-intro-to-htmx/readme.md)
 * exploring what capabilities are provided when we organize our web application around hypermedia principles using HTMX through a more complex exercise called [1-json-to-hypermedia](./1-json-to-hypermedia/readme.md)
-* exploring how to deal with high interaction elements like web maps in a hypermedia application using HTMX through an exercise called [2-islands-of-interactivity-with](./2-islands-of-interactivity/readme.md)
+* exploring how to deal with high interaction elements like web maps in a hypermedia application using HTMX through an exercise called [2-islands-of-interactivity](./2-islands-of-interactivity/readme.md)
 
 ### Working with exercises
 Exercises [0-quick-intro-to-htmx](./0-quick-intro-to-htmx/readme.md), [1-json-to-hypermedia](./1-json-to-hypermedia/readme.md) have two subdirectories: `exercise` and `solution`. The `exercise` folder contains starter code for the exercise while the `solution` folder contains the final solution code.
